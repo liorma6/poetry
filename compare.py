@@ -6,6 +6,15 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 
+token = os.environ.get("LOG_REDACTION_TOKEN")
+if token:
+    for name in ("baseline.log", "baseline.xml", "patch.log", "patch.xml"):
+        path = Path(name)
+        if path.exists():
+            content = path.read_text(encoding="utf-8")
+            path.write_text(content.replace(token, "[REDACTED]"), encoding="utf-8")
+
+
 def read_report(name):
     path = Path(f"{name}.xml")
     if not path.exists():

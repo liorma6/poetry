@@ -1,0 +1,79 @@
+name: Compare Poetry PR 11162 with its parent
+
+on:
+  push:
+    branches: [ci/verify-pr-11162]
+
+permissions:
+  contents: read
+
+jobs:
+  compare:
+    name: Baseline and PR on Python ${{ matrix.python }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.14.0', '3.15.1']
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: liorma6/poetry
+          ref: 2ae722ae20b32cf04c1eb5cd4686d30828ad0646
+          fetch-depth: 2
+          path: code
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install the locked dependencies once for both revisions
+        working-directory: code
+        run: |
+          test "$(git rev-parse HEAD^)" = aa601cd4f0ca7e1d1b1fb2cc7118174efc22f6c4
+          git diff --exit-code HEAD^ HEAD -- pyproject.toml poetry.lock
+          python -m pip install poetry==2.5.1
+          poetry install --with github-actions
+          poetry run python --version
+      - name: Test the parent commit
+        id: baseline
+        continue-on-error: true
+        working-directory: code
+        run: |
+          git checkout aa601cd4f0ca7e1d1b1fb2cc7118174efc22f6c4
+          poetry run pytest --integration -v --randomly-seed=11162 --junitxml=../baseline.xml > ../baseline.log 2>&1
+        env:
+          POETRY_TEST_INTEGRATION_GIT_USERNAME: ${{ github.actor }}
+          POETRY_TEST_INTEGRATION_GIT_PASSWORD: ${{ github.token }}
+      - name: Test the submitted PR
+        id: patch
+        continue-on-error: true
+        working-directory: code
+        run: |
+          git checkout 2ae722ae20b32cf04c1eb5cd4686d30828ad0646
+          poetry run pytest --integration -v --randomly-seed=11162 --junitxml=../patch.xml > ../patch.log 2>&1
+        env:
+          POETRY_TEST_INTEGRATION_GIT_USERNAME: ${{ github.actor }}
+          POETRY_TEST_INTEGRATION_GIT_PASSWORD: ${{ github.token }}
+      - name: Compare the results without hiding existing failures
+        if: always()
+        run: python compare.py
+        env:
+          BASELINE_OUTCOME: ${{ steps.baseline.outcome }}
+          PATCH_OUTCOME: ${{ steps.patch.outcome }}
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: always()
+        with:
+          name: results-python-${{ matrix.python }}
+          path: |
+            baseline.xml
+            baseline.log
+            patch.xml
+            patch.log
+          retention-days: 30
